@@ -1,0 +1,230 @@
+/* ============================================================
+   GLOBAL LAYOUT
+============================================================ */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: #eef4ff;
+  margin: 0;
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+.container-fluid {
+  flex: 1 0 auto;
+}
+
+.main-footer {
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   NAVBAR
+============================================================ */
+
+.main-nav {
+  background: #1b2a49;
+  color: white;
+  padding: 16px 0;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.nav-container {
+  width: 100%;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nav-logo {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+
+/* FOOTER */
+.main-footer {
+  background: #1b2a49;
+  color: #ccc;
+  text-align: center;
+  padding: 14px 0;
+  font-size: 14px;
+}
+
+/* ============================================================
+   CARDS
+============================================================ */
+
+.section-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 25px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* ============================================================
+   FILTER SECTION
+============================================================ */
+
+.filter-select {
+  width: 100% !important;
+}
+
+.select2-container .select2-selection--multiple {
+  border-radius: 8px !important;
+  border: 1px solid #ced4da !important;
+  min-height: 38px !important;
+  padding: 4px !important;
+}
+
+.select2-container--default
+  .select2-selection--multiple
+  .select2-selection__choice {
+  background: #1b2a49 !important;
+  color: white !important;
+  border: none !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  font-size: 12px;
+}
+
+.select2-container--default
+  .select2-selection--multiple
+  .select2-selection__choice__remove {
+  color: #ffd54f !important;
+}
+
+/* ============================================================
+   CUSTOM TABLE WRAPPER
+============================================================ */
+
+.custom-table-wrapper {
+  padding: 20px;
+  width: 100%;
+  background: white;
+}
+
+.table-container {
+  max-height: calc(100vh - 350px);
+  overflow-y: auto;
+  overflow-x: auto;
+  position: relative;
+}
+
+/* Sticky table header */
+#excelTable thead th {
+  position: sticky;
+  top: 0;
+  background: #1b2a49 !important;
+  color: white;
+  text-transform: uppercase;
+  font-size: 12px;
+  z-index: 20;
+  text-align: center;
+}
+
+/* Sticky right column (Aksi) */
+#excelTable thead th:last-child {
+  right: 0;
+  z-index: 40;
+  box-shadow: -3px 0 6px rgba(0, 0, 0, 0.2);
+}
+
+#excelTable tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: white;
+  z-index: 30;
+  box-shadow: -3px 0 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Cells */
+#excelTable td {
+  white-space: nowrap;
+  text-align: center;
+  padding: 8px 6px !important;
+  font-size: 13px;
+}
+
+#excelTable tbody tr:hover {
+  background: #e8f0ff !important;
+}
+
+/* ============================================================
+   DATATABLES TOP/BOTTOM STICKY
+============================================================ */
+
+.dt-controls {
+  position: sticky;
+  top: 0;
+  background: white;
+  padding: 10px 0;
+  z-index: 50;
+}
+
+.dt-pagination {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  padding: 10px 0;
+  z-index: 50;
+}
+
+/* Align Datatables length + search */
+#dt-top-controls .dt-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dataTables_filter label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Samakan tinggi tombol dengan input field */
+.btn-uploads,
+.btn-action {
+  height: 38px; /* match Bootstrap form-control height */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.dataTables_length select {
+  width: auto !important;
+  min-width: 70px;
+  max-width: 90px;
+  display: inline-block;
+}
+
+/* ============================================================
+   MODAL
+============================================================ */
+
+.modal-content {
+  border-radius: 12px;
+  padding-bottom: 10px;
+}
+
+/* ============================================================
+   RESPONSIVE FIXES
+============================================================ */
+
+@media (max-width: 768px) {
+  .table-container {
+    max-height: 60vh;
+  }
+}
