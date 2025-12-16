@@ -155,6 +155,33 @@ $("#modalDeleteForm").on("submit", function (e) {
     })
     .catch(() => showToast("Gagal menghapus data rentang tanggal.", "danger"));
 });
+/* =============================== UPDATE PER AJU =============================== */
+function openUpdateTanggal(nomorAju, tanggalMasuk) {
+  $("#updateNomorAju").val(nomorAju);
+  $("#updateTanggalMasuk").val(tanggalMasuk);
+
+  const modal = new bootstrap.Modal(
+    document.getElementById("updateTanggalModal")
+  );
+  modal.show();
+}
+$("#updateTanggalForm").on("submit", function (e) {
+  e.preventDefault();
+
+  const fd = new FormData(this);
+
+  fetch("assets/php/update_tanggal_per_dokumen.php", {
+    method: "POST",
+    body: fd,
+  })
+    .then((r) => r.text())
+    .then((msg) => {
+      showToast(msg, "success");
+      $("#updateTanggalModal").modal("hide");
+      loadTable();
+    })
+    .catch(() => showToast("Gagal update tanggal masuk.", "danger"));
+});
 
 /* =============================== DELETE PER AJU =============================== */
 function deleteDocument(aju) {
@@ -184,7 +211,8 @@ function loadTable() {
       "t" +
       "<'dt-pagination row mt-2'<'col-sm-12 d-flex justify-content-center'p>>",
     ordering: false,
-    pageLength: 25,
+    pageLength: 100,
+    autoWidth: false,
     initComplete: function () {
       $(".dataTables_filter input").attr("placeholder", "Type Something...");
       $(".dataTables_filter label").css({
@@ -301,7 +329,24 @@ function loadTable() {
         searchable: false,
         render: (d, t, r) =>
           r.row_item_index === 0
-            ? `<button class="btn btn-danger btn-sm" onclick="deleteDocument('${r.nomor_aju}')">Delete</button>`
+            ? `
+              <div class="d-flex gap-1">
+                <button 
+                  class="btn btn-warning btn-sm"
+                  onclick="openUpdateTanggal('${r.nomor_aju}', '${
+                r.tanggal_masuk || ""
+              }')"
+                >
+                  Update
+                </button>
+                <button 
+                  class="btn btn-danger btn-sm"
+                  onclick="deleteDocument('${r.nomor_aju}')"
+                >
+                  Delete
+                </button>
+              </div>
+            `
             : "",
       },
     ],

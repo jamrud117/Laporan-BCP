@@ -162,6 +162,9 @@ body::-webkit-scrollbar {
 #excelTable tbody tr:hover {
   background: #e8f0ff !important;
 }
+#excelTable td:nth-child(13) {
+  text-align: left;
+}
 
 /* ============================================================
    DATATABLES TOP/BOTTOM STICKY
