@@ -100,14 +100,20 @@ $("#uploadForm").on("submit", function (e) {
   fetch("assets/php/upload.php", { method: "POST", body: fd })
     .then((r) => r.text())
     .then((msg) => {
-      if (msg.startsWith("ERROR:"))
-        return showToast(msg.replace("ERROR:", ""), "danger");
+      if (msg.startsWith("ERROR:")) {
+        $("#uploadForm")[0].reset();
+        setDefaultToday();
+        showToast(msg.replace("ERROR:", ""), "danger");
+        return;
+      }
       if (msg.startsWith("INFO:"))
         return showToast(msg.replace("INFO:", ""), "info");
       if (msg.startsWith("WARNING:"))
         return showToast(msg.replace("WARNING:", ""), "warning");
       if (msg.startsWith("SUCCESS:")) {
         showToast(msg.replace("SUCCESS:", ""), "success");
+        $("#uploadForm")[0].reset();
+        setDefaultToday();
         loadTable();
         return;
       }
@@ -240,12 +246,33 @@ function loadTable() {
 
         Object.keys(grouped).forEach((aju) => {
           const groupRows = grouped[aju];
+
+          // 🔥 gabungkan semua text untuk search
+          const searchBlob = groupRows
+            .map((r) =>
+              [
+                r.nomor_aju,
+                r.nomor_pendaftaran,
+                r.nama_customer,
+                r.kode_barang,
+                r.nama_item,
+                r.dokumen_pelengkap,
+                r.tipe_kemasan,
+                r.tujuan_pengiriman,
+              ]
+                .filter(Boolean)
+                .join(" ")
+            )
+            .join(" ");
+
           groupRows.forEach((r, idx) => {
             const row = { ...r };
             row.row_item_index = idx;
             row.doc_no = docCounter;
+            row.search_blob = searchBlob; // 🔥 penting
             rows.push(row);
           });
+
           docCounter++;
         });
 
@@ -348,6 +375,11 @@ function loadTable() {
               </div>
             `
             : "",
+      },
+      {
+        data: "search_blob",
+        visible: false,
+        searchable: true,
       },
     ],
   });
@@ -462,7 +494,7 @@ async function generateExcelJS() {
         first ? r.tanggal_dokumen : "",
         first ? r.dokumen_pelengkap : "",
         first ? r.nama_customer : "",
-        first ? Number(r.jumlah_kemasan) || 0 : "",
+        first ? r.jumlah_kemasan : "",
         first ? r.tipe_kemasan : "",
 
         Number(r.quantity_item) || 0,

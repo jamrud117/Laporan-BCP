@@ -171,22 +171,71 @@ foreach ($files["name"] as $i => $name) {
     }
 
     /* ============================================
-       KEMASAN
+    KEMASAN (52 + 91 | RO + UN)
     ============================================ */
-    $jumlahKemasan = "";
-    $tipeKemasan   = "";
+    $jumlahParts = [];
+    $tipeParts   = [];
+
     if ($KEMASAN) {
-        $arr = $KEMASAN->toArray(null, true, true, true);
-        $h   = array_map("strtolower", array_map("trim", $arr[1] ?? []));
 
-        $cj = array_search("jumlah kemasan", $h);
-        $ct = array_search("kode kemasan", $h);
+        $arr = $KEMASAN->toArray(null, true, true, false);
 
-        if ($cj !== false && $ct !== false && isset($arr[2])) {
-            $jumlahKemasan = (int)($arr[2][$cj] ?? 0);
-            $tipeKemasan   = trim($arr[2][$ct] ?? "");
+        $headerRow = null;
+        $headerIdx = null;
+
+        // 🔍 CARI HEADER (DIMANA ADA KATA "KODE" & "JUMLAH")
+        foreach ($arr as $i => $row) {
+            $rowLower = array_map(fn($v) => strtolower(trim((string)$v)), $row);
+
+            if (
+                in_array("kode kemasan", $rowLower) ||
+                (in_array("kode", $rowLower) && in_array("jumlah", $rowLower))
+            ) {
+                $headerRow = $rowLower;
+                $headerIdx = $i;
+                break;
+            }
+        }
+
+        if ($headerRow !== null) {
+
+            $cAju    = findCol($headerRow, "aju");
+            $cKode  = findCol($headerRow, "kode");
+            $cJumlah= findCol($headerRow, "jumlah");
+
+            if ($cKode !== null && $cJumlah !== null) {
+
+                for ($i = $headerIdx + 1; $i < count($arr); $i++) {
+
+                    $aju   = trim((string)($arr[$i][$cAju] ?? ""));
+                    $kode  = trim((string)($arr[$i][$cKode] ?? ""));
+
+                    $jumlahRaw = $arr[$i][$cJumlah] ?? null;
+                    $jumlah = is_numeric($jumlahRaw)
+                        ? (int)$jumlahRaw
+                        : trim((string)$jumlahRaw);
+
+                    if ($cAju !== null && $aju !== "" && $aju !== $nomorAju) continue;
+
+                    if ($kode !== "" && $jumlah !== "") {
+                        $jumlahParts[] = $jumlah;
+                        $tipeParts[]   = $kode;
+                    }
+
+                }
+
+
+            }
         }
     }
+
+    $jumlahKemasan = implode(" + ", $jumlahParts); // 52 + 91
+    $tipeKemasan   = implode(" + ", $tipeParts);   // RO + UN
+
+
+
+
+
 
     /* ============================================
        BARANG (PER ITEM)
@@ -287,7 +336,7 @@ foreach ($files["name"] as $i => $name) {
 
         /* ===== INSERT ===== */
         $stmt->bind_param(
-            "ssssssissssisddsdidssi",
+            "ssssssssissisddsdddssi",
             $tanggalMasuk,
             $nomorAju,
             $nomorPendaftaran,
@@ -312,7 +361,10 @@ foreach ($files["name"] as $i => $name) {
             $isFallback
         );
 
-        $stmt->execute();
+        if (!$stmt->execute()) {
+        die("SQL ERROR: " . $stmt->error);
+}
+
     }
 
     $stmt->close();
