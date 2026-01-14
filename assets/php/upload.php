@@ -3,10 +3,22 @@ require __DIR__ . '/../../vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /* ============================================
-   KONEKSI DATABASE
+   INIT STATUS & MESSAGE
+============================================ */
+$messages   = [];
+$warnings = [];
+$errors = [];
+$hasError   = false;
+$hasSuccess = false;
+$successCount = 0;
+
+/* ============================================
+   DB CONNECTION
 ============================================ */
 $koneksi = new mysqli("localhost", "root", "", "excel_data");
-if ($koneksi->connect_error) die("Koneksi gagal: " . $koneksi->connect_error);
+if ($koneksi->connect_error) {
+    die("ERROR:❌ Koneksi database gagal");
+}
 
 /* ============================================
    VALIDASI INPUT
@@ -16,32 +28,36 @@ if (!isset($_FILES['files']) || empty($_POST['tanggal_masuk'])) {
     exit;
 }
 
-$tanggalMasuk = $_POST["tanggal_masuk"];
-$files        = $_FILES["files"];
+$tanggalMasuk = $_POST['tanggal_masuk'];
+$files = $_FILES['files'];
 
-
+/* ============================================
+   VALIDASI FILE TYPE
+============================================ */
 $allowedTypes = [
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ];
 
-foreach ($_FILES['files']['type'] as $i => $type) {
+foreach ($files['type'] as $i => $type) {
     if (!in_array($type, $allowedTypes)) {
-        echo "ERROR:❌ File " . $_FILES['files']['name'][$i] . " bukan file Excel!";
-        exit;
-
+        $messages[] = "ERROR:❌ File {$files['name'][$i]} bukan Excel";
+        $hasError = true;
     }
 }
 
+if ($hasError) {
+    echo implode("<br>", $messages);
+    exit;
+}
 
 /* ============================================
-   FUNGSI BANTUAN
+   HELPER FUNCTIONS (UTUH)
 ============================================ */
 function cell($sheet, $ref) {
-    if (!$sheet) return "";
     try {
         $v = $sheet->getCell($ref)->getValue();
-        return $v !== null ? trim($v) : "";
+        return $v !== null ? trim((string)$v) : "";
     } catch (Throwable) {
         return "";
     }
@@ -50,41 +66,34 @@ function cell($sheet, $ref) {
 function findCol($header, $key) {
     $key = strtolower(trim($key));
     foreach ($header as $i => $h) {
-        $h = strtolower(trim($h));
-        if ($h === $key) return $i;
-        if (strpos($h, $key) !== false) return $i;
+        $h = strtolower(trim((string)$h));
+        if ($h === $key || strpos($h, $key) !== false) return $i;
     }
     return null;
 }
 
 function concatItemName($parts) {
     $final = [];
-
     foreach ($parts as $p) {
         $p = trim((string)$p);
-
-        if ($p === "" || $p === "-" || strtolower($p) === "null" || strtolower($p) === "n/a") {
-            continue;
-        }
-
+        if ($p === "" || $p === "-" || strtolower($p) === "null" || strtolower($p) === "n/a") continue;
         $final[] = $p;
     }
-
     return implode(" ", $final);
 }
 
 /* ============================================
-   PROSES SETIAP FILE EXCEL
+   PROSES FILE
 ============================================ */
-foreach ($files["name"] as $i => $name) {
+foreach ($files['name'] as $i => $name) {
 
-    if (!$name) continue;
-    $tmp = $files["tmp_name"][$i];
-    if (!file_exists($tmp)) continue;
+    if (!$name || !file_exists($files['tmp_name'][$i])) continue;
 
     try {
-        $ss = IOFactory::load($tmp);
+        $ss = IOFactory::load($files['tmp_name'][$i]);
     } catch (Throwable) {
+        $messages[] = "ERROR:❌ Gagal membaca file $name";
+        $hasError = true;
         continue;
     }
 
@@ -96,42 +105,38 @@ foreach ($files["name"] as $i => $name) {
 
     if (!$HEADER || !$BARANG) continue;
 
-    /* ============================================
-       HEADER DATA
-    ============================================ */
+    /* ================= HEADER ================= */
     $nomorAju         = cell($HEADER, "A2");
     $nomorPendaftaran = cell($HEADER, "CP2");
     $tanggalDokumen   = cell($HEADER, "CF2");
     $kodeValuta       = cell($HEADER, "CI2");
     $ndpbm            = (float)cell($HEADER, "BW2");
     $fallbackBruto    = (float)cell($HEADER, "CB2");
+    $kodeTujuanRaw = trim(cell($HEADER, "N2"));
+    $kodeTujuan = preg_replace('/[^0-9]/', '', $kodeTujuanRaw);
+    if ($kodeTujuan === "" || $kodeTujuan === "0") {
+        $kodeTujuan = null;
+    }
+    $kodeDokumen = cell($HEADER, "B2");
 
-    /* ============================================
-       CEGAH DUPLIKASI DOKUMEN
-    ============================================ */
-    $cek = $koneksi->prepare("
-        SELECT COUNT(*) FROM excel_data 
-        WHERE nomor_aju = ?
-    ");
+    /* ================= DUPLIKASI AJU ================= */
+    $cek = $koneksi->prepare("SELECT 1 FROM excel_data WHERE nomor_aju = ? LIMIT 1");
     $cek->bind_param("s", $nomorAju);
     $cek->execute();
-    $cek->bind_result($exists);
-    $cek->fetch();
+    $cek->store_result();
+
+    if ($cek->num_rows > 0) {
+        $warnings[] = "⚠️ Duplikat $nomorAju";
+        $cek->close();
+        continue;
+    }
     $cek->close();
 
-    if ($exists > 0) {
-        echo "ERROR:⚠️ $nomorAju sudah ada!<br>";
-        return;
-    }
-
-    /* ============================================
-       DOKUMEN PELENGKAP
-    ============================================ */
+    /* ================= DOKUMEN ================= */
     $dokumenPelengkap = "";
     if ($DOKUMEN) {
         $arr = $DOKUMEN->toArray(null, true, true, true);
-        $h   = array_map("strtolower", array_map("trim", $arr[1] ?? []));
-
+        $h = array_map("strtolower", array_map("trim", $arr[1] ?? []));
         $ck = array_search("kode dokumen", $h);
         $cn = array_search("nomor dokumen", $h);
 
@@ -148,130 +153,150 @@ foreach ($files["name"] as $i => $name) {
         }
     }
 
-    /* ============================================
-       ENTITAS (CUSTOMER)
-    ============================================ */
-    $namaCustomer = "";
+    /* ================= ENTITAS ================= */
+    $myCompany = false;
+
     if ($ENTITAS) {
-        $arr = $ENTITAS->toArray(null, true, true, true);
-        $h   = array_map("strtolower", array_map("trim", $arr[1] ?? []));
+        $rows = $ENTITAS->toArray(null, true, true, true);
+        $header = array_map("strtolower", array_map("trim", $rows[1] ?? []));
 
-        $ck = array_search("kode entitas", $h);
-        $cn = array_search("nama entitas", $h);
+        $cKode = array_search("kode entitas", $header);
+        $cNama = array_search("nama entitas", $header);
 
-        if ($ck !== false && $cn !== false) {
-            foreach ($arr as $r => $row) {
+        if ($cKode !== false && $cNama !== false) {
+            foreach ($rows as $r => $row) {
                 if ($r == 1) continue;
-                if (trim($row[$ck] ?? "") == "3") {
-                    $namaCustomer = trim($row[$cn] ?? "");
+
+                $kode = trim((string)$row[$cKode]);
+                $nama = strtoupper(trim((string)$row[$cNama]));
+
+                if ($kode === "3" && str_contains($nama, "CHINLI PLASTIC MATERIALS INDONESIA")) {
+                    $myCompany = true;
                     break;
                 }
             }
         }
     }
+    $arahDokumen = "Masuk";
 
-    /* ============================================
-    KEMASAN (52 + 91 | RO + UN)
-    ============================================ */
-    $jumlahParts = [];
-    $tipeParts   = [];
-
-    if ($KEMASAN) {
-
-        $arr = $KEMASAN->toArray(null, true, true, false);
-
-        $headerRow = null;
-        $headerIdx = null;
-
-        // 🔍 CARI HEADER (DIMANA ADA KATA "KODE" & "JUMLAH")
-        foreach ($arr as $i => $row) {
-            $rowLower = array_map(fn($v) => strtolower(trim((string)$v)), $row);
-
-            if (
-                in_array("kode kemasan", $rowLower) ||
-                (in_array("kode", $rowLower) && in_array("jumlah", $rowLower))
-            ) {
-                $headerRow = $rowLower;
-                $headerIdx = $i;
-                break;
+    switch ($kodeDokumen) {
+        case "27":
+            if ($myCompany) {
+                $arahDokumen = "Keluar";
             }
-        }
+            break;
 
-        if ($headerRow !== null) {
+        case "40":
+            $arahDokumen = "Masuk";
+            break;
 
-            $cAju    = findCol($headerRow, "aju");
-            $cKode  = findCol($headerRow, "kode");
-            $cJumlah= findCol($headerRow, "jumlah");
+        case "41":
+            $arahDokumen = "Keluar";
+            break;
 
-            if ($cKode !== null && $cJumlah !== null) {
+        case "23":
+            if ($myCompany) {
+                $arahDokumen = "Keluar";
+            }
+            break;
 
-                for ($i = $headerIdx + 1; $i < count($arr); $i++) {
+        default:
+            $arahDokumen = "Masuk";
+    }
+    $jenisDokumen = $kodeDokumen . " " . $arahDokumen;
 
-                    $aju   = trim((string)($arr[$i][$cAju] ?? ""));
-                    $kode  = trim((string)($arr[$i][$cKode] ?? ""));
+    $mapCustomerEntitas = [
+        "27" => [
+            "Masuk"  => "7",
+            "Keluar" => "8",
+        ],
+        "40" => [
+            "Masuk"  => "9",
+        ],
+        "41" => [
+            "Keluar" => "8",
+        ],
+        "23" => [
+            "Masuk"  => "3",
+            "Keluar" => "7",
+        ],
+    ];
 
-                    $jumlahRaw = $arr[$i][$cJumlah] ?? null;
-                    $jumlah = is_numeric($jumlahRaw)
-                        ? (int)$jumlahRaw
-                        : trim((string)$jumlahRaw);
-
-                    if ($cAju !== null && $aju !== "" && $aju !== $nomorAju) continue;
-
-                    if ($kode !== "" && $jumlah !== "") {
-                        $jumlahParts[] = $jumlah;
-                        $tipeParts[]   = $kode;
-                    }
-
-                }
+    if (isset($mapCustomerEntitas[$kodeDokumen][$arahDokumen])) {
+        $kodeCustomer = $mapCustomerEntitas[$kodeDokumen][$arahDokumen];
+    }
 
 
+
+
+
+    $namaCustomer = "";
+
+    if ($ENTITAS) {
+        foreach ($rows as $r => $row) {
+            if ($r == 1) continue;
+
+            if (trim((string)$row[$cKode]) === $kodeCustomer) {
+                $namaCustomer = trim((string)$row[$cNama]);
+                break;
             }
         }
     }
 
-    $jumlahKemasan = implode(" + ", $jumlahParts); // 52 + 91
-    $tipeKemasan   = implode(" + ", $tipeParts);   // RO + UN
 
-
-
-
-
-
-    /* ============================================
-       BARANG (PER ITEM)
-    ============================================ */
     $rows = $BARANG->toArray(null, true, true, true);
-    $headerRow = array_map("strtolower", array_map("trim", $rows[1]));
 
-    $cSeri   = findCol($headerRow, "seri");
-    $cQty    = findCol($headerRow, "jumlah");
-    $cSat    = findCol($headerRow, "satuan");
-    $cCif    = findCol($headerRow, "cif");
-    $cHarga  = findCol($headerRow, "harga");
-    $cNetto  = findCol($headerRow, "netto");
-    $cBruto  = findCol($headerRow, "bruto");
-    $cKode   = findCol($headerRow, "kode");
+    $header = array_map("strtolower", array_map("trim", $rows[1] ?? []));
+    $cHarga = findCol($header, "harga penyerahan");
+    $cSeri  = findCol($header, "seri");
+    $cQty   = findCol($header, "jumlah");
+    $cSat   = findCol($header, "satuan");
+    $cNet   = findCol($header, "netto");
+    $cBru   = findCol($header, "bruto");
+    $cCif   = findCol($header, "cif");
+    $cKode  = findCol($header, "kode");
+    $cUra   = findCol($header, "uraian");
+    $cMer   = findCol($header, "merek");
+    $cTip   = findCol($header, "tipe");
+    $cUkr   = findCol($header, "ukuran");
+    $cSpe   = findCol($header, "spesifikasi");
+    $cJmlKemasanBarang  = findCol($header, "jumlah kemasan");
+    $cKodeKemasanBarang = findCol($header, "kode kemasan");
 
-    // Kolom untuk concat
-    $cUraian = findCol($headerRow, "uraian");
-    $cMerek  = findCol($headerRow, "merek");
-    $cTipe   = findCol($headerRow, "tipe");
-    $cUkuran = findCol($headerRow, "ukuran");
-    $cSpek   = findCol($headerRow, "spesifikasi");
 
-    $kodeTujuan = cell($HEADER, "N2");
-    $map = [
-        "1" => "PENYERAHAN BKP",
-        "2" => "PENYERAHAN JKP",
-        "3" => "RETUR",
-        "4" => "NON PENYERAHAN",
-        "5" => "LAINNYA"
-    ];
-    $tujuanPengiriman = $map[$kodeTujuan] ?? "TIDAK DIKETAHUI";
+    // ================= KEMASAN HEADER (UNTUK BC 27, 23, DLL) =================
+    $jumlahPartsKemasan = [];
+    $tipePartsKemasan   = [];
 
-    /* ============================================
-       PREPARE QUERY
-    ============================================ */
+    if ($KEMASAN && !in_array($kodeDokumen, ["40", "41"])) {
+
+        $rowsKemasan = $KEMASAN->toArray(null, true, true, true);
+        $headerKemasan = array_map("strtolower", array_map("trim", $rowsKemasan[1] ?? []));
+
+        $cKodeKem = findCol($headerKemasan, "kode");
+        $cJmlKem  = findCol($headerKemasan, "jumlah");
+
+        if ($cKodeKem !== null && $cJmlKem !== null) {
+            for ($r = 2; $r <= count($rowsKemasan); $r++) {
+                $row = $rowsKemasan[$r] ?? null;
+                if (!$row) continue;
+
+                $kode = trim((string)($row[$cKodeKem] ?? ""));
+                $jml  = trim((string)($row[$cJmlKem] ?? ""));
+
+                if ($kode === "" || $jml === "" || !is_numeric($jml)) continue;
+
+                $jumlahPartsKemasan[] = $jml;
+                $tipePartsKemasan[]   = strtoupper($kode);
+            }
+        }
+    }
+
+
+    
+
+
+    /* ================= PREPARE INSERT ================= */
     $stmt = $koneksi->prepare("
         INSERT INTO excel_data (
             tanggal_masuk, nomor_aju, nomor_pendaftaran, tanggal_dokumen,
@@ -279,96 +304,147 @@ foreach ($files["name"] as $i => $name) {
             jumlah_kemasan, tipe_kemasan,
             nomor_seri_barang, kode_barang, nama_item, quantity_item, satuan_barang,
             netto, bruto, valuta, cif, ndpbm, harga_penyerahan,
-            kode_tujuan_pengiriman, tujuan_pengiriman,
-            is_fallback_bruto
-        )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            kode_tujuan_pengiriman, is_fallback_bruto, jenis_dokumen
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ");
 
-    if (!$stmt) continue;
+    
 
-    /* ============================================
-       LOOP ITEM BARANG
-    ============================================ */
+
     for ($r = 2; $r <= count($rows); $r++) {
-        if (!isset($rows[$r])) continue;
+        $rw = $rows[$r] ?? null;
+        if (!$rw || empty($rw[$cSeri])) continue;
 
-        $rw = $rows[$r];
-        if ($cSeri === null || empty($rw[$cSeri])) continue;
+        $brutoRaw = $rw[$cBru] ?? "";
+        $bruto = ($brutoRaw == "" || $brutoRaw == 0) ? $fallbackBruto : (float)$brutoRaw;
+        $isFallback = ($brutoRaw == "" || $brutoRaw == 0) ? 1 : 0;
 
-        $seri     = trim($rw[$cSeri]);
-        $qty      = (int)($rw[$cQty] ?? 0);
-        $satuan   = trim($rw[$cSat] ?? "");
-        $cif      = (float)($rw[$cCif] ?? 0);
-        $netto    = (float)($rw[$cNetto] ?? 0);
-        $kodeBrg  = trim($rw[$cKode] ?? "");
-
-        /* ===== CONCAT NAMA ITEM ===== */
         $namaItem = concatItemName([
-            $rw[$cUraian] ?? "",
-            $rw[$cMerek]  ?? "",
-            $rw[$cTipe]   ?? "",
-            $rw[$cUkuran] ?? "",
-            $rw[$cSpek]   ?? ""
+            $rw[$cUra] ?? "", $rw[$cMer] ?? "", $rw[$cTip] ?? "", $rw[$cUkr] ?? "", $rw[$cSpe] ?? ""
         ]);
 
-        if ($namaItem === "") {
-            $namaItem = trim($rw[$cUraian] ?? "");
-        }
+        // ================= KHUSUS DOKUMEN 40 & 41 =================
+        if ($kodeDokumen === "40" || $kodeDokumen === "41") {
 
-        /* ===== HARGA ===== */
-        $harga = (float)($rw[$cHarga] ?? 0);
-        if ($harga <= 0) {
-            $harga = $cif * $ndpbm;
-        }
+            // NDPBM wajib 1
+            $ndpbmFinal = 1;
 
-        /* ===== BRUTO (FALLBACK) ===== */
-        $gwRaw = $rw[$cBruto] ?? "";
+            // Ambil dari kolom HARGA PENYERAHAN
+            $hargaPenyerahan = isset($rw[$cHarga]) ? (float)$rw[$cHarga] : 0;
 
-        if ($gwRaw === "" || $gwRaw === null || floatval($gwRaw) == 0) {
-            $brutoItem = floatval($fallbackBruto); // fallback dari HEADER
-            $isFallback = 1;
+            // CIF = Harga Penyerahan
+            $cifFinal = $hargaPenyerahan;
+
         } else {
-            $brutoItem = floatval($gwRaw);
-            $isFallback = 0;
+
+            // Dokumen normal
+            $ndpbmFinal = (float)$ndpbm;
+            $cifFinal  = isset($rw[$cCif]) ? (float)$rw[$cCif] : 0;
+
+            // Harga Penyerahan = CIF x NDPBM
+            $hargaPenyerahan = $cifFinal * $ndpbmFinal;
+        }
+
+        // ================= SET VALUTA =================
+        if ($kodeDokumen === "40" || $kodeDokumen === "41") {
+            $kodeValuta = "IDR";
+        }
+        // ================= KEMASAN PER BARANG =================
+        $jumlahKemasanFinal = "";
+        $tipeKemasanFinal   = "";
+
+        if ($kodeDokumen === "40" || $kodeDokumen === "41") {
+
+            // BC 40 & 41 → PER BARANG
+            $jumlahKemasanFinal =
+                $cJmlKemasanBarang !== null
+                ? trim((string)($rw[$cJmlKemasanBarang] ?? ""))
+                : "";
+
+            $tipeKemasanFinal =
+                $cKodeKemasanBarang !== null
+                ? strtoupper(trim((string)($rw[$cKodeKemasanBarang] ?? "")))
+                : "";
+
+        } else {
+
+            // BC 27, 23, dll → HEADER (HANYA BARIS PERTAMA)
+            if ($r === 2) {
+                $jumlahKemasanFinal = implode(" + ", $jumlahPartsKemasan);
+                $tipeKemasanFinal   = implode(" + ", $tipePartsKemasan);
+            } else {
+                $jumlahKemasanFinal = "";
+                $tipeKemasanFinal   = "";
+            }
         }
 
 
-        /* ===== INSERT ===== */
         $stmt->bind_param(
-            "ssssssssissisddsdddssi",
+            "ssssssssissisddsddisis",
             $tanggalMasuk,
             $nomorAju,
             $nomorPendaftaran,
             $tanggalDokumen,
             $dokumenPelengkap,
             $namaCustomer,
-            $jumlahKemasan,
-            $tipeKemasan,
-            $seri,
-            $kodeBrg,
+            $jumlahKemasanFinal,
+            $tipeKemasanFinal,
+            $rw[$cSeri],
+            $rw[$cKode],
             $namaItem,
-            $qty,
-            $satuan,
-            $netto,
-            $brutoItem,
+            $rw[$cQty],
+            $rw[$cSat],
+            $rw[$cNet],
+            $bruto,
             $kodeValuta,
-            $cif,
-            $ndpbm,
-            $harga,
+            $cifFinal,
+            $ndpbmFinal,
+            $hargaPenyerahan,
             $kodeTujuan,
-            $tujuanPengiriman,
-            $isFallback
+            $isFallback,
+            $jenisDokumen
         );
 
-        if (!$stmt->execute()) {
-        die("SQL ERROR: " . $stmt->error);
-}
+        if ($stmt->execute()) {
+            $hasSuccess = true;
+            $successCount++;
+        } else {
+            $errors[] = "❌ Gagal insert AJU $nomorAju : " . $stmt->error;
+            $hasError = true;
+        }
 
     }
 
     $stmt->close();
+    $hasSuccess = true;
 }
 
+/* ============================================
+   FINAL OUTPUT
+============================================ */
 $koneksi->close();
-echo "SUCCESS: Upload & ekstraksi selesai!";
+
+/* ===== PRIORITAS OUTPUT ===== */
+
+if (!empty($errors)) {
+    echo "ERROR:<br>" . implode("<br>", $errors);
+    exit;
+}
+
+if ($hasSuccess && !empty($warnings)) {
+    echo "INFO: Upload selesai dengan peringatan.<br>" . implode("<br>", $warnings);
+    exit;
+}
+
+if (!empty($warnings)) {
+    echo "WARNING:" . implode("<br>", $warnings);
+    exit;
+}
+
+if ($hasSuccess) {
+    echo "SUCCESS: Upload & ekstraksi selesai! ($successCount item)";
+    exit;
+}
+
+echo "WARNING: Tidak ada data yang berhasil diproses.";
+

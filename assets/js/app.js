@@ -6,7 +6,7 @@ document.querySelectorAll(".navbar-nav .nav-link").forEach((link) => {
   if (linkPage === currentPage) link.classList.add("active");
 });
 
-/* =============================== TOAST =============================== */
+/* ================TOAST================ */
 function showToast(message, type = "primary") {
   $("#mainToast")
     .removeClass()
@@ -39,7 +39,12 @@ function hideExportToast() {
   bootstrap.Toast.getInstance(el)?.hide();
 }
 
-/* =============================== FORMATTER =============================== */
+/* =============== FORMATTER =============== */
+function formatMultiline(v) {
+  if (!v) return "";
+  return String(v).replace(/\n/g, "<br>");
+}
+
 function formatNumber(v) {
   if (v === null || v === undefined || v === "") return "";
   if (isNaN(v)) return v;
@@ -87,7 +92,7 @@ function formatCurrencyAuto(value, currencyCode) {
     : prefix + num.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-/* =============================== FORM: UPLOAD =============================== */
+/* ============== FORM: UPLOAD ============== */
 $("#uploadForm").on("submit", function (e) {
   e.preventDefault();
 
@@ -286,6 +291,10 @@ function loadTable() {
         render: (d, t, r) => (r.row_item_index === 0 ? d : ""),
       },
       {
+        data: "jenis_dokumen",
+        render: (d, t, r) => (r.row_item_index === 0 ? d : ""),
+      },
+      {
         data: "tanggal_masuk",
         render: (d, t, r) => (r.row_item_index === 0 ? d : ""),
       },
@@ -311,11 +320,36 @@ function loadTable() {
       },
       {
         data: "jumlah_kemasan",
-        render: (d, t, r) => (r.row_item_index === 0 ? formatNumber(d) : ""),
+        render: (d, t, r) => {
+          const is40or41 =
+            r.jenis_dokumen &&
+            (r.jenis_dokumen.includes("40") || r.jenis_dokumen.includes("41"));
+
+          // 🔥 BC 40 / 41 → tampil per baris
+          if (is40or41) {
+            return formatNumber(d);
+          }
+
+          // 🔁 dokumen lain → hanya baris pertama
+          return r.row_item_index === 0 ? formatNumber(d) : "";
+        },
       },
+
       {
         data: "tipe_kemasan",
-        render: (d, t, r) => (r.row_item_index === 0 ? d : ""),
+        render: (d, t, r) => {
+          const is40or41 =
+            r.jenis_dokumen &&
+            (r.jenis_dokumen.includes("40") || r.jenis_dokumen.includes("41"));
+
+          // 🔥 BC 40 / 41 → tampil per baris
+          if (is40or41) {
+            return d || "";
+          }
+
+          // 🔁 dokumen lain → hanya baris pertama
+          return r.row_item_index === 0 ? d : "";
+        },
       },
 
       { data: "quantity_item", render: (d) => formatNumber(d) },
@@ -348,7 +382,20 @@ function loadTable() {
       },
 
       { data: "kode_tujuan_pengiriman" },
-      { data: "tujuan_pengiriman" },
+
+      {
+        data: "kode_tujuan_pengiriman",
+        render: (d) => {
+          const map = {
+            1: "PENYERAHAN BKP",
+            2: "PENYERAHAN JKP",
+            3: "RETUR",
+            4: "NON PENYERAHAN",
+            5: "LAINNYA",
+          };
+          return d ? `${map[d] || "TIDAK DIKETAHUI"}` : "";
+        },
+      },
 
       {
         data: null,
@@ -414,24 +461,15 @@ async function generateExcelJS() {
       return;
     }
 
-    data.sort((a, b) => new Date(a.tanggal_masuk) - new Date(b.tanggal_masuk));
-
-    const grouped = {};
+    // 🔹 Group data berdasarkan jenis dokumen
+    const groupedByJenis = {};
     data.forEach((r) => {
-      if (!grouped[r.nomor_aju]) grouped[r.nomor_aju] = [];
-      grouped[r.nomor_aju].push(r);
-    });
-
-    const finalData = [];
-    Object.keys(grouped).forEach((aju) => {
-      grouped[aju].forEach((r, idx) => {
-        r.row_item_index = idx;
-        finalData.push(r);
-      });
+      const jenis = r.jenis_dokumen || "UNKNOWN";
+      if (!groupedByJenis[jenis]) groupedByJenis[jenis] = [];
+      groupedByJenis[jenis].push(r);
     });
 
     const wb = new ExcelJS.Workbook();
-    const sheet = wb.addWorksheet("Laporan Bulanan Bc 2.7 Masuk");
 
     const headers = [
       "No",
@@ -460,104 +498,176 @@ async function generateExcelJS() {
       "Keterangan",
     ];
 
-    sheet.addRow(headers);
-    sheet.getRow(1).eachCell((c) => {
-      c.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      c.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF1B2A49" },
-      };
-      c.alignment = { horizontal: "center" };
-    });
+    for (const jenis in groupedByJenis) {
+      const sheet = wb.addWorksheet(jenis.substring(0, 31));
+      const rows = groupedByJenis[jenis];
 
-    let no = 1;
-
-    finalData.forEach((r) => {
-      let brutoExport;
-      if (r.is_fallback_bruto == 1) {
-        brutoExport =
-          r.row_item_index === 0
-            ? Number(String(r.bruto).replace(/[^0-9.-]/g, "")) || 0
-            : "";
-      } else {
-        brutoExport = Number(String(r.bruto).replace(/[^0-9.-]/g, "")) || 0;
-      }
-
-      const first = r.row_item_index === 0;
-
-      sheet.addRow([
-        first ? no++ : "",
-        first ? r.tanggal_masuk : "",
-        first ? r.nomor_aju : "",
-        first ? r.nomor_pendaftaran : "",
-        first ? r.tanggal_dokumen : "",
-        first ? r.dokumen_pelengkap : "",
-        first ? r.nama_customer : "",
-        first ? r.jumlah_kemasan : "",
-        first ? r.tipe_kemasan : "",
-
-        Number(r.quantity_item) || 0,
-        r.satuan_barang || "",
-        r.kode_barang || "",
-        r.nama_item || "",
-        Number(r.nomor_seri_barang) || 0,
-
-        Number(String(r.netto).replace(/[^0-9.-]/g, "")) || 0,
-        brutoExport,
-
-        r.valuta || "",
-        Number(String(r.cif).replace(/[^0-9.-]/g, "")) || 0,
-        Number(String(r.ndpbm).replace(/[^0-9.-]/g, "")) || 0,
-        Number(String(r.harga_penyerahan).replace(/[^0-9.-]/g, "")) || 0,
-
-        Number(r.kode_tujuan_pengiriman) || 0,
-        r.tujuan_pengiriman || "",
-      ]);
-    });
-
-    /* ================= AUTO ALIGN ================= */
-    sheet.eachRow((row) => {
-      row.eachCell((cell) => {
-        cell.alignment = {
-          horizontal: "center",
-          vertical: "middle",
-          wrapText: false,
+      sheet.addRow(headers);
+      sheet.getRow(1).eachCell((c) => {
+        c.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        c.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF1B2A49" },
         };
+        c.alignment = { horizontal: "center" };
       });
-    });
 
-    /* ================= AUTO-FIT ================= */
-    sheet.columns.forEach((col) => {
-      let maxLength = 10;
-      col.eachCell({ includeEmpty: true }, (cell) => {
-        const v = cell.value ? cell.value.toString() : "";
-        maxLength = Math.max(maxLength, v.length + 2);
+      let no = 1;
+
+      // 🔹 Group per nomor AJU
+      const groupedByAju = {};
+      rows.forEach((r) => {
+        const aju = r.nomor_aju || "_NO_AJU_";
+        if (!groupedByAju[aju]) groupedByAju[aju] = [];
+        groupedByAju[aju].push(r);
       });
-      col.width = maxLength;
-    });
 
-    /* ======================= MERGE KOLOM GW ======================= */
-    const GW_COL = 16; // Kolom ke-16 = GW
-    let startRow = null;
+      // 🔹 Loop tiap nomor AJU
+      for (const aju in groupedByAju) {
+        const groupRows = groupedByAju[aju];
 
-    sheet.eachRow((row, rowNumber) => {
-      const cell = row.getCell(GW_COL);
-      const val = cell.value;
+        groupRows.forEach((r, idx) => {
+          const first = idx === 0; // ⚡ first hanya baris pertama per AJU
+          const is40or41 =
+            r.jenis_dokumen &&
+            (r.jenis_dokumen.includes("40") || r.jenis_dokumen.includes("41"));
 
-      if (val !== "" && val !== null && val !== undefined) {
-        if (startRow !== null && rowNumber - 1 > startRow) {
-          sheet.mergeCells(startRow, GW_COL, rowNumber - 1, GW_COL);
-        }
-        startRow = rowNumber;
+          let brutoExport;
+          if (r.is_fallback_bruto == 1) {
+            brutoExport = first
+              ? Number(String(r.bruto).replace(/[^0-9.-]/g, "")) || 0
+              : "";
+          } else {
+            brutoExport = Number(String(r.bruto).replace(/[^0-9.-]/g, "")) || 0;
+          }
+
+          const tujuan = (r.kode_tujuan_pengiriman || "").toUpperCase();
+          const kodeBarang = String(r.kode_barang || "").trim();
+          let keteranganExport = "";
+
+          if (tujuan === "3") {
+            keteranganExport = "BARANG JADI";
+          } else if (
+            tujuan === "5" &&
+            (kodeBarang === "1114433" || kodeBarang === "KEMASAN")
+          ) {
+            keteranganExport = "BARANG PEMBANTU";
+          } else if (tujuan === "1") {
+            keteranganExport = "BAHAN BAKU";
+          } else if (
+            tujuan === "5" &&
+            (kodeBarang != "1114433" || kodeBarang != "KEMASAN")
+          ) {
+            keteranganExport = "BAHAN BAKU";
+          }
+
+          const barangModal = keteranganExport.toUpperCase().includes("MESIN")
+            ? "Y"
+            : "T";
+
+          const tujuanMap = {
+            1: "PENYERAHAN BKP",
+            2: "PENYERAHAN JKP",
+            3: "RETUR",
+            4: "NON PENYERAHAN",
+            5: "LAINNYA",
+          };
+          const tujuanTrans = tujuanMap[r.kode_tujuan_pengiriman] || "";
+
+          const rowExcel = sheet.addRow([
+            first ? no++ : "",
+            first ? r.tanggal_masuk : "",
+            first ? r.nomor_aju : "",
+            first ? r.nomor_pendaftaran : "",
+            first ? r.tanggal_dokumen : "",
+            first ? r.dokumen_pelengkap : "",
+            first ? r.nama_customer : "",
+            is40or41
+              ? r.jumlah_kemasan || ""
+              : first
+              ? r.jumlah_kemasan || ""
+              : "",
+
+            is40or41 ? r.tipe_kemasan || "" : first ? r.tipe_kemasan || "" : "",
+
+            Number(r.quantity_item) || 0,
+            r.satuan_barang || "",
+            r.kode_barang || "",
+            r.nama_item || "",
+            Number(r.nomor_seri_barang) || 0,
+
+            Number(String(r.netto).replace(/[^0-9.-]/g, "")) || 0,
+            brutoExport,
+
+            r.valuta || "",
+            Number(String(r.cif).replace(/[^0-9.-]/g, "")) || 0,
+            Number(String(r.ndpbm).replace(/[^0-9.-]/g, "")) || 0,
+            Number(String(r.harga_penyerahan).replace(/[^0-9.-]/g, "")) || 0,
+
+            r.kode_tujuan_pengiriman === null || r.kode_tujuan_pengiriman === ""
+              ? ""
+              : r.kode_tujuan_pengiriman,
+            tujuanTrans,
+            barangModal,
+            keteranganExport,
+          ]);
+
+          // 🔴 Warnai baris
+          if (tujuan === "3" || tujuan === "5") {
+            rowExcel.eachCell((cell) => {
+              cell.font = { color: { argb: "FFFF0000" } };
+            });
+          }
+        });
       }
-    });
 
-    if (startRow !== null && sheet.rowCount > startRow) {
-      sheet.mergeCells(startRow, GW_COL, sheet.rowCount, GW_COL);
+      // 🔹 Auto align & auto fit
+      sheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          cell.alignment = {
+            horizontal: "center",
+            vertical: "middle",
+            wrapText: false,
+          };
+        });
+      });
+
+      sheet.columns.forEach((col) => {
+        let maxLength = 11;
+        col.eachCell({ includeEmpty: true }, (cell) => {
+          const v = cell.value ? cell.value.toString() : "";
+          maxLength = Math.max(maxLength, v.length + 2);
+        });
+        col.width = maxLength;
+      });
+      const GW_COL = 16; // kolom GW (1-based)
+
+      let startRow = null;
+
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        const gw = row.getCell(GW_COL).value;
+        const hasValue = gw !== null && gw !== "" && gw !== undefined;
+
+        if (hasValue) {
+          // Tutup merge sebelumnya
+          if (startRow !== null && rowNumber - 1 > startRow) {
+            sheet.mergeCells(startRow, GW_COL, rowNumber - 1, GW_COL);
+          }
+          // Mulai merge baru
+          startRow = rowNumber;
+        }
+      });
+
+      // Merge terakhir
+      if (startRow !== null && sheet.rowCount > startRow) {
+        sheet.mergeCells(startRow, GW_COL, sheet.rowCount, GW_COL);
+      }
     }
 
-    /* ======================= EXPORT FILE ======================= */
+    // 🔹 Export file
     const buf = await wb.xlsx.writeBuffer();
     saveAs(
       new Blob([buf], {
